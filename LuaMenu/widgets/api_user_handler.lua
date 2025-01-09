@@ -221,6 +221,7 @@ local function GetUserComboBoxOptions(userName, isInBattle, control, showTeamCol
 																													comboOptions[#comboOptions + 1] = "Add Bonus" end
 	if (iAmBoss or (iPlay and not bossed)) and not bs.aiLib and isInBattle and not bs.isSpectator then								comboOptions[#comboOptions + 1] = "Force Spectator" end
 	if (iAmBoss or (iPlay and not bossed)) and not itsme and not info.isBot and isInBattle and not bs.aiLib then						comboOptions[#comboOptions + 1] = "Kickban" end
+	if info.isBot or bs.aiLib then																					comboOptions[#comboOptions + 1] = "Clone AI" end
 	if bs.aiLib and bs.owner == myUserName and isInBattle then														comboOptions[#comboOptions + 1] = "Remove" end
 	if not itsme and not info.isBot and not bs.aiLib then															comboOptions[#comboOptions + 1] = "Report User" end
 																													comboOptions[#comboOptions + 1] = "Copy Name"
@@ -1049,6 +1050,7 @@ local function GetUserControls(userName, opts)
 						})
 					elseif selectedName == "Change Team" then
 						local battleStatus = userControls.lobby:GetUserBattleStatus(userName) or {}
+						local bonusAmount = battleStatus.handicap
 						if battleStatus.isSpectator then
 							return
 						end
@@ -1070,6 +1072,9 @@ local function GetUserControls(userName, opts)
 										userControls.lobby:UpdateAi(userName, {
 											allyNumber = allyTeamID - 1
 										})
+										if not isSingleplayer and bonusAmount and bonusAmount ~= 0 then
+											lobby:SayBattle("!force "..userName.." bonus ".. tostring(bonusAmount))
+										end
 									else
 										lobby:SayBattle("!force "..userName.." team ".. tostring(allyTeamID)) -- +1 for spads team
 									end
@@ -1112,6 +1117,67 @@ local function GetUserControls(userName, opts)
 								end
 							end
 						})
+					elseif selectedName == "Clone AI" then
+						local function CloneFunc(numberOfClones)
+							local status = userControls.lobby:GetUserBattleStatus(userName)
+								if not status then return end
+
+								local aiSettings = {
+									aiLib = status.aiLib,
+									allyNumber = status.allyNumber,
+									aiVersion = status.aiVersion,
+									aiOptions = status.aiOptions,
+									battleStatusOptions = {
+										teamColor = status.teamColor,
+										side = status.side,
+										handicap = status.handicap,
+									}
+								}
+								for i = 1, numberOfClones do
+									local counter = 1
+									local aiName
+
+									local found = true
+									while found do
+										found = false
+										aiName = userName:gsub("%(%d+%)", "(" .. tostring(counter) .. ")")
+										for _, existingName in pairs(userControls.lobby.battleAis) do
+											if aiName == existingName then
+												found = true
+												break
+											end
+										end
+										counter = counter + 1
+									end
+									userControls.lobby:AddAi(
+										aiName,
+										aiSettings.aiLib,
+										aiSettings.allyNumber,
+										aiSettings.aiVersion,
+										aiSettings.aiOptions,
+										aiSettings.battleStatusOptions
+									)
+
+									if not isSingleplayer and aiSettings.battleStatusOptions.handicap and aiSettings.battleStatusOptions.handicap ~= 0 then
+										lobby:SayBattle("!force " .. aiName .. " bonus ".. tostring(aiSettings.battleStatusOptions.handicap))
+									end
+								end
+
+						end
+						if isSingleplayer == true then
+							WG.IntegerSelectorWindow.CreateIntegerSelectorWindow({
+								defaultValue = 1,
+								minValue = 1,
+								maxValue = 16,
+								caption = "Clone AI",
+								labelCaption = "Create this many new AI players with the same profile, settings, and bonus as "..userName..":",
+								OnAccepted = function(numberOfClones)
+									CloneFunc(numberOfClones)
+								end
+							})
+						else
+							CloneFunc(1) -- Limit to 1 clone in multiplayer to prevent flood protection kick
+						end
 					elseif selectedName == "Ring" then
 						--lobby:Ring(userName)
 						lobby:SayBattle("!ring "..userName)
@@ -1428,6 +1494,8 @@ local function GetUserControls(userName, opts)
 		local handicaptxt = ''
 		if bs.handicap and bs.handicap > 0 then
 			handicaptxt = '+'..tostring(bs.handicap)
+		elseif bs.handicap and bs.handicap < 0 then
+			handicaptxt = tostring(bs.handicap)
 		end
 		userControls.lblHandicap = Label:New{
 			name = "lblHandicap",
